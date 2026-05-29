@@ -15,14 +15,20 @@
 // fragmentation, just click between characters — the page component
 // unmounts and remounts, and so does AdsProvider.
 //
-// The actual addMessage() / kontextConfig orchestration lives in
-// KontextStore.vue (verbatim from the customer) — it sits inside the
-// KontextProvider slot so it can useAds(), and listens for the
-// CHAT_AD_KONTEXT_ADD_MSG event that our ChatUI.vue fires after pushing
-// new entries onto msgList.
+// The slot uses ChatList — our recommended-pattern implementation.
+// KontextProvider.vue (verbatim from the customer) wraps it; the
+// customer's KontextStore.vue and KontextAds.vue stay in the repo as
+// reference but are NOT mounted in the live demo, because they're the
+// two pieces that cause the "ad rendered for the wrong message" and
+// "rendered but never viewed" symptoms documented at
+// https://www.notion.so/megabrainco/PolyBuzz-flow-36fbafc897e280afb7aaf9edc94e9d9b
+//
+// ChatList instead:
+//   - calls useAds().addMessage() immediately for each message
+//   - renders <InlineAd> inline (wrapper slot) next to its assistant message
+//   - has no off-screen preload trick, so viewability fires on time
 import KontextProvider from '~/components/Chat/KontextProvider.vue'
-import KontextStore from '~/components/Chat/Kontext/Store/KontextStore.vue'
-import ChatUI from '~/components/Chat/ChatUI.vue'
+import ChatList from '~/components/Chat/ChatList.vue'
 import { useStore } from '~/components/Chat/store/state'
 
 const route = useRoute()
@@ -126,8 +132,7 @@ onBeforeUnmount(() => {
         </span>
       </p>
 
-      <KontextStore />
-      <ChatUI />
+      <ChatList />
     </KontextProvider>
   </main>
 </template>
