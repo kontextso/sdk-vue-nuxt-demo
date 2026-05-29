@@ -1,8 +1,10 @@
 // Polybuzz's plugin-bus contract. The actual list is longer in their app;
-// we only declare the symbols KontextProvider/KontextAds reference.
+// we only declare the symbols KontextProvider/KontextAds/KontextStore
+// reference.
 export enum EVENT_NAME {
   CHAT_AD_KONTEXT_RENDERED = 'CHAT_AD_KONTEXT_RENDERED',
   CHAT_AD_KONTEXT_ERROR = 'CHAT_AD_KONTEXT_ERROR',
+  CHAT_AD_KONTEXT_ADD_MSG = 'CHAT_AD_KONTEXT_ADD_MSG',
   CHAT_LIST_SCROLL_BOTTOM = 'CHAT_LIST_SCROLL_BOTTOM',
 }
 

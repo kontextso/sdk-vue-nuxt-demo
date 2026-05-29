@@ -15,10 +15,20 @@
 // fragmentation, just click between characters — the page component
 // unmounts and remounts, and so does AdsProvider.
 //
-// The actual addMessage() / kontextConfig orchestration lives in
-// ChatRunner.vue (inside the KontextProvider slot so it can useAds()).
+// The slot uses ChatList — our recommended-pattern implementation.
+// KontextProvider.vue (verbatim from the customer) wraps it; the
+// customer's KontextStore.vue and KontextAds.vue stay in the repo as
+// reference but are NOT mounted in the live demo, because they're the
+// two pieces that cause the "ad rendered for the wrong message" and
+// "rendered but never viewed" symptoms documented at
+// https://www.notion.so/megabrainco/PolyBuzz-flow-36fbafc897e280afb7aaf9edc94e9d9b
+//
+// ChatList instead:
+//   - calls useAds().addMessage() immediately for each message
+//   - renders <InlineAd> inline (wrapper slot) next to its assistant message
+//   - has no off-screen preload trick, so viewability fires on time
 import KontextProvider from '~/components/Chat/KontextProvider.vue'
-import ChatRunner from '~/components/Chat/ChatRunner.vue'
+import ChatList from '~/components/Chat/ChatList.vue'
 import { useStore } from '~/components/Chat/store/state'
 
 const route = useRoute()
@@ -109,20 +119,11 @@ onBeforeUnmount(() => {
     <p><NuxtLink to="/">&larr; back</NuxtLink></p>
     <KontextProvider>
       <h1>Chat with {{ store.sceneInfo.value.sceneName || cid }}</h1>
-      <p style="opacity: 0.7; font-size: 0.9rem;">
-        cid: <code>{{ cid }}</code> &nbsp;|&nbsp;
-        secretSceneId: <code>{{ secretSceneId }}</code><br />
-        suid: <code>{{ authStore.userInfos?.suid ?? '(unauthenticated)' }}</code> &nbsp;|&nbsp;
-        sessionId (sent as conversationId): <code>{{ store.sessionId.value || '(empty)' }}</code><br />
-        <span v-if="swapEnabled" style="color: #f54444;">
-          ⚠ swap mode ON — sessionId will be replaced ~2s after mount, destroying the SDK session
-        </span>
-        <span v-else>
-          (add <code>?swap=1</code> to the URL to simulate polybuzz's temp→real conversationId swap)
-        </span>
+      <p v-if="swapEnabled" style="color: #f54444; font-size: 0.9rem;">
+        ⚠ swap mode ON — sessionId will be replaced ~2s after mount, destroying the SDK session
       </p>
 
-      <ChatRunner />
+      <ChatList />
     </KontextProvider>
   </main>
 </template>
