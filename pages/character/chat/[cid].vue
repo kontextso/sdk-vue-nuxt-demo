@@ -16,9 +16,13 @@
 // unmounts and remounts, and so does AdsProvider.
 //
 // The actual addMessage() / kontextConfig orchestration lives in
-// ChatRunner.vue (inside the KontextProvider slot so it can useAds()).
+// KontextStore.vue (verbatim from the customer) — it sits inside the
+// KontextProvider slot so it can useAds(), and listens for the
+// CHAT_AD_KONTEXT_ADD_MSG event that our ChatUI.vue fires after pushing
+// new entries onto msgList.
 import KontextProvider from '~/components/Chat/KontextProvider.vue'
-import ChatRunner from '~/components/Chat/ChatRunner.vue'
+import KontextStore from '~/components/Chat/Kontext/Store/KontextStore.vue'
+import ChatUI from '~/components/Chat/ChatUI.vue'
 import { useStore } from '~/components/Chat/store/state'
 
 const route = useRoute()
@@ -122,7 +126,8 @@ onBeforeUnmount(() => {
         </span>
       </p>
 
-      <ChatRunner />
+      <KontextStore />
+      <ChatUI />
     </KontextProvider>
   </main>
 </template>
