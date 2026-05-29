@@ -40,6 +40,7 @@ import { defineComponent, onMounted, ref, computed } from 'vue'
 import { InlineAd, useAds } from '@kontextso/sdk-vue'
 import { useStore } from './store/state'
 import { ROLETYPE } from './constant'
+import type { IMessage } from './types'
 
 const { addMessage } = useAds()
 const { msgList } = useStore()
@@ -100,18 +101,18 @@ async function sendMessage(text: string) {
   // Clearing currentAdMsgId here unmounts the previously-rendered ad
   // so the chat doesn't accumulate stale ads as the conversation grows.
   currentAdMsgId.value = null
-  const userMsg = { id: makeId(), role: ROLETYPE.USER as const, content: text }
+  const userMsg: IMessage = { id: makeId(), role: ROLETYPE.USER, content: text }
   msgList.value.push(userMsg)
-  await addMessage({ id: userMsg.id, role: 'user', content: text }, opts)
+  addMessage({ id: userMsg.id, role: 'user', content: text, createdAt: new Date() }, opts)
 
   // Pretend to call an LLM. In a real app this is the streaming reply.
   aiTyping.value = true
   await new Promise((r) => setTimeout(r, 600))
   const reply = `(simulated reply to: "${text}")`
-  const aiMsg = { id: makeId(), role: ROLETYPE.AI as const, content: reply }
+  const aiMsg: IMessage = { id: makeId(), role: ROLETYPE.AI, content: reply }
   msgList.value.push(aiMsg)
   if (showAd) currentAdMsgId.value = aiMsg.id
-  await addMessage({ id: aiMsg.id, role: 'assistant', content: reply }, opts)
+  addMessage({ id: aiMsg.id, role: 'assistant', content: reply, createdAt: new Date() }, opts)
   aiTyping.value = false
 }
 
