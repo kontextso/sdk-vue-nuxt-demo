@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Recommended-pattern chat list. Replaces the customer's
-// KontextStore.vue + KontextAds.vue path with the three concrete fixes
-// documented in https://docs.kontext.so/sdk/vue:
+// KontextStore.vue + KontextAds.vue path with the four fixes documented
+// in https://docs.kontext.so/sdk/vue:
 //
 //   1. Call useAds().addMessage() **immediately** when each message is
 //      added — not only after both user + assistant are ready. This lets
@@ -18,17 +18,25 @@
 //
 //   3. **No off-screen preload trick.** The empty container renders in
 //      its natural place. If there's no bid for that messageId, nothing
-//      visible appears (the container is a zero-height div). If a bid
-//      arrives, the iframe drops in and is immediately in the viewport
-//      — IntersectionObserver fires, viewability accrues, ad.viewed
-//      arrives on time.
+//      visible appears. If a bid arrives, the iframe drops in and is
+//      immediately in the viewport — IntersectionObserver fires,
+//      viewability accrues, ad.viewed arrives on time.
+//
+//   4. **Use { trackOnly: true } for pacing.** When the publisher wants
+//      to skip an ad for a particular turn, they still call addMessage()
+//      (so the server has the full conversation context), but pass
+//      { trackOnly: true } as the second argument. The SDK sends the
+//      preload but doesn't process bids. Below we use this to demonstrate
+//      a pacing rule: ad on turns 1, 2, 6, 10, 14, … and trackOnly on
+//      all other turns.
+//      https://docs.kontext.so/concepts/pacing#方式-2：用-trackonly-在单条消息上覆盖
 //
 // `KontextProvider.vue` still wraps this slot (it's the verbatim file
 // from polybuzz and is fine — it just creates the AdsProvider with their
 // props). `KontextAds.vue` and `KontextStore.vue` are kept in the repo
 // as reference (the customer's actual code), but are not used here.
 
-import { defineComponent, h, onMounted, ref } from 'vue'
+import { defineComponent, onMounted, ref, computed } from 'vue'
 import { InlineAd, useAds } from '@kontextso/sdk-vue'
 import { useStore } from './store/state'
 import { ROLETYPE } from './constant'
@@ -37,6 +45,30 @@ const { addMessage } = useAds()
 const { msgList } = useStore()
 const input = ref('')
 const aiTyping = ref(false)
+
+// Per-user-message counter, used to drive the pacing rule below. We track
+// our own counter (instead of computing from msgList) so message-deletions
+// or edits don't shift the pacing position.
+const userTurn = ref(0)
+
+// MessageIds of assistant replies where we requested an ad (i.e. we did
+// NOT mark them trackOnly). Used by the template to decide whether to
+// render <InlineAd> for that bubble.
+const adsFor = ref<Set<string>>(new Set())
+
+// Pacing rule: show an ad on user turns 1, 2, 6, 10, 14, … and use
+// { trackOnly: true } on every other turn. The first 2 turns warm the
+// chat with back-to-back ads; after that, one ad every 4 turns.
+//   1 → ad
+//   2 → ad
+//   3,4,5 → trackOnly
+//   6 → ad
+//   7,8,9 → trackOnly
+//   10 → ad
+//   …
+function shouldShowAd(turn: number): boolean {
+  return turn <= 2 || turn % 4 === 2
+}
 
 // Tiny helper component: renders an arbitrary VNode passed as a prop.
 // Needed because the InlineAd wrapper slot hands us a VNode (the ad
@@ -53,18 +85,29 @@ function makeId(): string {
 
 async function sendMessage(text: string) {
   if (!text.trim()) return
+  userTurn.value++
+  const turn = userTurn.value
+  const showAd = shouldShowAd(turn)
+  // Pass an empty options object for normal "show ad" turns and
+  // { trackOnly: true } for paced-off turns. Both still reach the server
+  // so it has the full conversation context.
+  const opts = showAd ? {} : { trackOnly: true as const }
+
   // Recommendation #1 — push and addMessage the user's message NOW.
+  // The user message is what triggers the preload; trackOnly here is
+  // what controls whether the SDK will process bids for this turn.
   const userMsg = { id: makeId(), role: ROLETYPE.USER as const, content: text }
   msgList.value.push(userMsg)
-  await addMessage({ id: userMsg.id, role: 'user', content: text })
+  await addMessage({ id: userMsg.id, role: 'user', content: text }, opts)
 
-  // Pretend to call an LLM. In the real app this is the streaming reply.
+  // Pretend to call an LLM. In a real app this is the streaming reply.
   aiTyping.value = true
   await new Promise((r) => setTimeout(r, 600))
   const reply = `(simulated reply to: "${text}")`
   const aiMsg = { id: makeId(), role: ROLETYPE.AI as const, content: reply }
   msgList.value.push(aiMsg)
-  await addMessage({ id: aiMsg.id, role: 'assistant', content: reply })
+  if (showAd) adsFor.value.add(aiMsg.id)
+  await addMessage({ id: aiMsg.id, role: 'assistant', content: reply }, opts)
   aiTyping.value = false
 }
 
@@ -73,6 +116,22 @@ async function onSubmit() {
   input.value = ''
   await sendMessage(text)
 }
+
+// Convenience: fire several auto-generated messages in sequence so the
+// pacing pattern becomes visible without typing 14 times. Each call
+// waits for the previous one to finish so userTurn increments correctly.
+async function autoSend(n: number) {
+  for (let i = 0; i < n; i++) {
+    await sendMessage(`Test message ${userTurn.value + 1}`)
+  }
+}
+
+// Compute the "next ad turn" so we can show a human-friendly hint.
+const nextAdTurn = computed(() => {
+  let t = userTurn.value + 1
+  while (!shouldShowAd(t)) t++
+  return t
+})
 
 onMounted(async () => {
   if (msgList.value.length === 0) {
@@ -93,13 +152,14 @@ onMounted(async () => {
 
       <!--
         Recommendation #2 — InlineAd lives INLINE next to its assistant
-        message. The wrapper slot styles the ad row to match the chat
-        (avatar lozenge + bubble). The ad iframe mounts inside the row;
-        if no bid arrives for this messageId the inner div stays empty
-        and the row collapses to zero height (recommendation #3 — no
-        off-screen preload trick required).
+        message. We only render it for assistant messages whose turn was
+        an "ad turn" (adsFor.has(m.id)); turns marked trackOnly never
+        produce an <InlineAd>, so there's nothing to load for them.
       -->
-      <InlineAd v-if="m.role === ROLETYPE.AI" :message-id="m.id">
+      <InlineAd
+        v-if="m.role === ROLETYPE.AI && adsFor.has(m.id)"
+        :message-id="m.id"
+      >
         <template #wrapper="{ ad }">
           <div class="ad-row">
             <div class="ad-avatar" aria-hidden="true">ad</div>
@@ -116,9 +176,19 @@ onMounted(async () => {
     </div>
   </section>
 
+  <div class="pacing-info">
+    <strong>Pacing:</strong> ad on turns <code>1, 2, 6, 10, 14, …</code>
+    — every other turn is <code>addMessage(msg, { trackOnly: true })</code>.
+    You're at turn <strong>{{ userTurn }}</strong>; next ad on turn
+    <strong>{{ nextAdTurn }}</strong>.
+  </div>
+
   <form class="composer" @submit.prevent="onSubmit">
     <input v-model="input" placeholder="Type a message" :disabled="aiTyping" />
-    <button :disabled="aiTyping || !input.trim()">Send</button>
+    <button type="submit" :disabled="aiTyping || !input.trim()">Send</button>
+    <button type="button" class="secondary" :disabled="aiTyping" @click="autoSend(5)">
+      +5 test msgs
+    </button>
   </form>
 </template>
 
@@ -128,7 +198,7 @@ onMounted(async () => {
   flex-direction: column;
   gap: 0.5rem;
   margin-top: 1rem;
-  min-height: 60vh;
+  min-height: 55vh;
 }
 .msg-row {
   display: flex;
@@ -160,8 +230,8 @@ onMounted(async () => {
   opacity: 0.6;
 }
 /* Ad row: in the flow of the chat, immediately under its bound message.
-   If no bid lands for this messageId, the inner container is empty and
-   the row collapses (avatar lozenge stays hidden via :has). */
+   :has(iframe) check collapses the row to zero height before the iframe
+   has loaded, so a brief "ad pending" gap doesn't push the chat down. */
 .ad-row {
   display: flex;
   align-items: flex-start;
@@ -189,10 +259,19 @@ onMounted(async () => {
   flex: 1;
   min-width: 0;
 }
+.pacing-info {
+  margin: 1rem 0 0;
+  padding: 0.6rem 0.8rem;
+  background: #1f1f20;
+  border: 1px solid #333;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  opacity: 0.85;
+}
 .composer {
   display: flex;
   gap: 0.5rem;
-  margin-top: 1rem;
+  margin-top: 0.6rem;
 }
 .composer input {
   flex: 1;
@@ -214,6 +293,9 @@ onMounted(async () => {
   border-radius: 999px;
   cursor: pointer;
   font-size: 0.95rem;
+}
+.composer button.secondary {
+  background: #343435;
 }
 .composer button:disabled {
   opacity: 0.4;
