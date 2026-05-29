@@ -36,11 +36,13 @@
 // props). `KontextAds.vue` and `KontextStore.vue` are kept in the repo
 // as reference (the customer's actual code), but are not used here.
 
-import { defineComponent, onMounted, ref, computed } from 'vue'
+import { defineComponent, onBeforeUnmount, onMounted, ref, computed } from 'vue'
 import { InlineAd, useAds } from '@kontextso/sdk-vue'
 import { useStore } from './store/state'
 import { ROLETYPE } from './constant'
 import type { IMessage } from './types'
+import usePlugin from '../PluginStore/hook'
+import { EVENT_NAME } from '../PluginStore/interface'
 
 const { addMessage } = useAds()
 const { msgList } = useStore()
@@ -58,6 +60,24 @@ const userTurn = ref(0)
 // disappears from the chat. If the new turn is an ad turn, this is set
 // again once the assistant reply lands.
 const currentAdMsgId = ref<string | null>(null)
+
+// True once the SDK has fired ad.render-completed for the current ad.
+// Listed for via KontextProvider's eventHandler → CHAT_AD_KONTEXT_RENDERED
+// on the plugin bus. Used to keep the wrapper hidden while the iframe is
+// loading — otherwise the empty <iframe> element occupies the avatar +
+// bubble slot for a beat before the ad creative arrives.
+const currentAdRendered = ref(false)
+
+const { onEvent, offEvent } = usePlugin()
+function onAdRendered() {
+  currentAdRendered.value = true
+}
+onMounted(() => {
+  onEvent(EVENT_NAME.CHAT_AD_KONTEXT_RENDERED, onAdRendered)
+})
+onBeforeUnmount(() => {
+  offEvent(EVENT_NAME.CHAT_AD_KONTEXT_RENDERED, onAdRendered)
+})
 
 // Pacing rule: show an ad on user turns 1, 5, 9, 13, … (every 4th
 // turn starting from the first one) and use { trackOnly: true } on the
@@ -100,7 +120,10 @@ async function sendMessage(text: string) {
   // what controls whether the SDK will process bids for this turn.
   // Clearing currentAdMsgId here unmounts the previously-rendered ad
   // so the chat doesn't accumulate stale ads as the conversation grows.
+  // currentAdRendered is reset too so the next ad's wrapper stays hidden
+  // until ad.render-completed fires for it.
   currentAdMsgId.value = null
+  currentAdRendered.value = false
   const userMsg: IMessage = { id: makeId(), role: ROLETYPE.USER, content: text }
   msgList.value.push(userMsg)
   addMessage({ id: userMsg.id, role: 'user', content: text, createdAt: new Date() }, opts)
@@ -175,7 +198,14 @@ onMounted(async () => {
         :message-id="m.id"
       >
         <template #wrapper="{ ad }">
-          <div class="ad-row">
+          <!--
+            v-show (not v-if) on the wrapper so the SDK can still mount
+            its iframe into the ad container while the row is hidden.
+            The iframe loads inside the display:none subtree, fires
+            ad.render-completed via postMessage, and only then does the
+            row appear in the chat — no empty "ad loading…" placeholder.
+          -->
+          <div v-show="currentAdRendered" class="ad-row">
             <div class="ad-avatar" aria-hidden="true">ad</div>
             <div class="ad-bubble">
               <VNodeRenderer :vnode="ad" />
