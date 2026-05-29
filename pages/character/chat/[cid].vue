@@ -119,17 +119,8 @@ onBeforeUnmount(() => {
     <p><NuxtLink to="/">&larr; back</NuxtLink></p>
     <KontextProvider>
       <h1>Chat with {{ store.sceneInfo.value.sceneName || cid }}</h1>
-      <p style="opacity: 0.7; font-size: 0.9rem;">
-        cid: <code>{{ cid }}</code> &nbsp;|&nbsp;
-        secretSceneId: <code>{{ secretSceneId }}</code><br />
-        suid: <code>{{ authStore.userInfos?.suid ?? '(unauthenticated)' }}</code> &nbsp;|&nbsp;
-        sessionId (sent as conversationId): <code>{{ store.sessionId.value || '(empty)' }}</code><br />
-        <span v-if="swapEnabled" style="color: #f54444;">
-          ⚠ swap mode ON — sessionId will be replaced ~2s after mount, destroying the SDK session
-        </span>
-        <span v-else>
-          (add <code>?swap=1</code> to the URL to simulate polybuzz's temp→real conversationId swap)
-        </span>
+      <p v-if="swapEnabled" style="color: #f54444; font-size: 0.9rem;">
+        ⚠ swap mode ON — sessionId will be replaced ~2s after mount, destroying the SDK session
       </p>
 
       <ChatList />

@@ -51,10 +51,12 @@ const aiTyping = ref(false)
 // or edits don't shift the pacing position.
 const userTurn = ref(0)
 
-// MessageIds of assistant replies where we requested an ad (i.e. we did
-// NOT mark them trackOnly). Used by the template to decide whether to
-// render <InlineAd> for that bubble.
-const adsFor = ref<Set<string>>(new Set())
+// MessageId of the assistant reply that *currently* has an ad attached.
+// Only one ad is ever on screen at a time: when the user sends a new
+// message we clear this, so the previous ad's <InlineAd> unmounts and
+// disappears from the chat. If the new turn is an ad turn, this is set
+// again once the assistant reply lands.
+const currentAdMsgId = ref<string | null>(null)
 
 // Pacing rule: show an ad on user turns 1, 5, 9, 13, … (every 4th
 // turn starting from the first one) and use { trackOnly: true } on the
@@ -95,6 +97,9 @@ async function sendMessage(text: string) {
   // Recommendation #1 — push and addMessage the user's message NOW.
   // The user message is what triggers the preload; trackOnly here is
   // what controls whether the SDK will process bids for this turn.
+  // Clearing currentAdMsgId here unmounts the previously-rendered ad
+  // so the chat doesn't accumulate stale ads as the conversation grows.
+  currentAdMsgId.value = null
   const userMsg = { id: makeId(), role: ROLETYPE.USER as const, content: text }
   msgList.value.push(userMsg)
   await addMessage({ id: userMsg.id, role: 'user', content: text }, opts)
@@ -105,7 +110,7 @@ async function sendMessage(text: string) {
   const reply = `(simulated reply to: "${text}")`
   const aiMsg = { id: makeId(), role: ROLETYPE.AI as const, content: reply }
   msgList.value.push(aiMsg)
-  if (showAd) adsFor.value.add(aiMsg.id)
+  if (showAd) currentAdMsgId.value = aiMsg.id
   await addMessage({ id: aiMsg.id, role: 'assistant', content: reply }, opts)
   aiTyping.value = false
 }
@@ -140,6 +145,13 @@ onMounted(async () => {
 </script>
 
 <template>
+  <div class="pacing-info">
+    <strong>Pacing:</strong> ad on turns <code>1, 5, 9, 13, …</code>
+    — every other turn is <code>addMessage(msg, { trackOnly: true })</code>.
+    You're at turn <strong>{{ userTurn }}</strong>; next ad on turn
+    <strong>{{ nextAdTurn }}</strong>.
+  </div>
+
   <section class="chat">
     <template v-for="m in msgList" :key="m.id">
       <div class="msg-row" :class="m.role === ROLETYPE.AI ? 'ai' : 'user'">
@@ -151,12 +163,14 @@ onMounted(async () => {
 
       <!--
         Recommendation #2 — InlineAd lives INLINE next to its assistant
-        message. We only render it for assistant messages whose turn was
-        an "ad turn" (adsFor.has(m.id)); turns marked trackOnly never
-        produce an <InlineAd>, so there's nothing to load for them.
+        message. Only the *current* ad is mounted (currentAdMsgId === m.id);
+        when the user sends a new message currentAdMsgId is cleared and
+        the previous ad's <InlineAd> unmounts, so old ads don't pile up
+        in the chat. Turns marked trackOnly never get an ad mounted at
+        all because currentAdMsgId stays null on those turns.
       -->
       <InlineAd
-        v-if="m.role === ROLETYPE.AI && adsFor.has(m.id)"
+        v-if="m.role === ROLETYPE.AI && currentAdMsgId === m.id"
         :message-id="m.id"
       >
         <template #wrapper="{ ad }">
@@ -174,13 +188,6 @@ onMounted(async () => {
       <div class="bubble typing">…</div>
     </div>
   </section>
-
-  <div class="pacing-info">
-    <strong>Pacing:</strong> ad on turns <code>1, 5, 9, 13, …</code>
-    — every other turn is <code>addMessage(msg, { trackOnly: true })</code>.
-    You're at turn <strong>{{ userTurn }}</strong>; next ad on turn
-    <strong>{{ nextAdTurn }}</strong>.
-  </div>
 
   <form class="composer" @submit.prevent="onSubmit">
     <input v-model="input" placeholder="Type a message" :disabled="aiTyping" />
