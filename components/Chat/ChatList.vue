@@ -56,18 +56,17 @@ const userTurn = ref(0)
 // render <InlineAd> for that bubble.
 const adsFor = ref<Set<string>>(new Set())
 
-// Pacing rule: show an ad on user turns 1, 2, 6, 10, 14, … and use
-// { trackOnly: true } on every other turn. The first 2 turns warm the
-// chat with back-to-back ads; after that, one ad every 4 turns.
+// Pacing rule: show an ad on user turns 1, 5, 9, 13, … (every 4th
+// turn starting from the first one) and use { trackOnly: true } on the
+// turns in between.
 //   1 → ad
-//   2 → ad
-//   3,4,5 → trackOnly
-//   6 → ad
-//   7,8,9 → trackOnly
-//   10 → ad
+//   2, 3, 4 → trackOnly
+//   5 → ad
+//   6, 7, 8 → trackOnly
+//   9 → ad
 //   …
 function shouldShowAd(turn: number): boolean {
-  return turn <= 2 || turn % 4 === 2
+  return turn % 4 === 1
 }
 
 // Tiny helper component: renders an arbitrary VNode passed as a prop.
@@ -177,7 +176,7 @@ onMounted(async () => {
   </section>
 
   <div class="pacing-info">
-    <strong>Pacing:</strong> ad on turns <code>1, 2, 6, 10, 14, …</code>
+    <strong>Pacing:</strong> ad on turns <code>1, 5, 9, 13, …</code>
     — every other turn is <code>addMessage(msg, { trackOnly: true })</code>.
     You're at turn <strong>{{ userTurn }}</strong>; next ad on turn
     <strong>{{ nextAdTurn }}</strong>.
