@@ -4,14 +4,25 @@
 // CHAT_AD_KONTEXT_ADD_MSG so KontextStore.vue pumps them into the SDK.
 // The actual <InlineAd> render is handled by <KontextAds> (the customer's
 // verbatim component), which we render below the messages.
+//
+// We also flip kontextConfig.visible = true once the ad has rendered.
+// Otherwise the `.ad-preload { position: absolute; top: -1000px }` CSS
+// in KontextAds.vue keeps the iframe off-screen forever, the SDK's
+// IntersectionObserver sees zero pixels, and `ad.viewed` never fires —
+// exactly the "rendered but not viewed" pattern we kept seeing in
+// polybuzz's ClickHouse data. We don't know which component does this
+// in their real app (it might be a scroll-into-view detector); for the
+// demo we just bring the ad on-screen as soon as CHAT_AD_KONTEXT_RENDERED
+// fires.
 import { ROLETYPE } from './constant'
 import { useStore } from './store/state'
+import { kontextConfig } from './state'
 import KontextAds from './KontextAds.vue'
 import usePlugin from '../PluginStore/hook'
 import { EVENT_NAME } from '../PluginStore/interface'
 
 const { msgList } = useStore()
-const { triggerEvents } = usePlugin()
+const { triggerEvents, onEvent, offEvent } = usePlugin()
 
 function pushExchange(userText: string, replyText: string) {
   const stamp = Date.now()
@@ -22,10 +33,20 @@ function pushExchange(userText: string, replyText: string) {
   triggerEvents(EVENT_NAME.CHAT_AD_KONTEXT_ADD_MSG)
 }
 
+function onAdRendered() {
+  // Bring the ad on-screen so viewability tracking can fire.
+  kontextConfig.value = { ...kontextConfig.value, visible: true }
+}
+
 onMounted(() => {
+  onEvent(EVENT_NAME.CHAT_AD_KONTEXT_RENDERED, onAdRendered)
   if (msgList.value.length === 0) {
     pushExchange('Hi!', 'Hello there.')
   }
+})
+
+onBeforeUnmount(() => {
+  offEvent(EVENT_NAME.CHAT_AD_KONTEXT_RENDERED, onAdRendered)
 })
 
 function sendMessage() {
